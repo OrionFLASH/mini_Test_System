@@ -30,7 +30,7 @@ import argparse
 #   'advanced'     — расширенный режим (поддержка аргументов командной строки, конфигов, интерактива)
 #   'interactive'  — всегда запускать интерактивный режим выбора теста
 #   'config'       — запуск с определённой конфигурацией (см. TEST_CONFIGS)
-RUN_MODE = 'advanced'  # <--- Меняйте это значение для выбора режима
+RUN_MODE = 'interactive'  # <--- Меняйте это значение для выбора режима
 
 # ============================================================================
 # КОНФИГУРАЦИЯ ФАЙЛОВОЙ СИСТЕМЫ
@@ -86,6 +86,15 @@ LOG_LEVELS = {
     "DEBUG": logging.DEBUG
 }
 
+# Значения по умолчанию для интерактивного режима
+DEFAULT_VALUES = {
+    "test_type": "bitcoin_mining",      # По умолчанию: симуляция майнинга биткойна
+    "load_type": "CPU",                 # По умолчанию: только CPU
+    "complexity": "medium",             # По умолчанию: средняя сложность
+    "duration": 30,                     # По умолчанию: 30 секунд
+    "performance_mode": False           # По умолчанию: обычный режим (с ограничением времени)
+}
+
 TEST_TYPES = {
     "basic": "Базовое тестирование производительности",
     "hash_calculation": "Расчет хешей SHA-256",
@@ -99,7 +108,11 @@ LOAD_TYPES = {
     "CPU": "Только процессор",
     "GPU": "Только видеокарта (если доступна)",
     "BOTH": "Процессор и видеокарта",
-    "NEURAL": "Нейронные вычисления (имитация)"
+    "NEURAL": "Нейронные вычисления (имитация)",
+    "CPU_INTENSIVE": "Интенсивная нагрузка на CPU",
+    "MEMORY_INTENSIVE": "Интенсивная нагрузка на память",
+    "IO_INTENSIVE": "Интенсивная нагрузка на диск",
+    "MIXED": "Смешанная нагрузка (CPU + память + диск)"
 }
 
 PROCESSOR_TYPES = {
@@ -118,7 +131,8 @@ TEST_SETTINGS = {
     "max_duration": 60,
     "default_duration": 30,
     "interrupt_key": "q",
-    "monitoring_interval": 0.5
+    "monitoring_interval": 0.5,
+    "performance_mode": False  # True = режим тестирования производительности (без ограничения времени)
 }
 
 COMPLEXITY_SETTINGS = {
@@ -199,6 +213,31 @@ TEST_CONFIGS = {
         "load_type": "NEURAL",
         "complexity": "easy",
         "duration": 12
+    },
+    # Новые конфигурации для тестирования производительности
+    "cpu_benchmark": {
+        "test_type": "matrix_operations",
+        "load_type": "CPU_INTENSIVE",
+        "complexity": "hard",
+        "performance_mode": True
+    },
+    "memory_benchmark": {
+        "test_type": "prime_numbers",
+        "load_type": "MEMORY_INTENSIVE",
+        "complexity": "hard",
+        "performance_mode": True
+    },
+    "mixed_benchmark": {
+        "test_type": "neural_simulation",
+        "load_type": "MIXED",
+        "complexity": "medium",
+        "performance_mode": True
+    },
+    "crypto_benchmark": {
+        "test_type": "hash_calculation",
+        "load_type": "CPU_INTENSIVE",
+        "complexity": "hard",
+        "performance_mode": True
     }
 }
 
@@ -364,6 +403,23 @@ def start_monitoring(duration: float, logger: logging.Logger) -> None:
     logger.debug("Мониторинг ресурсов завершен")
 
 
+def start_monitoring_performance(logger: logging.Logger) -> None:
+    """
+    Запускает мониторинг ресурсов в режиме производительности (до завершения теста).
+    """
+    def monitor_loop():
+        monitor_system_resources()
+    t = threading.Thread(target=monitor_loop)
+    t.daemon = True
+    t.start()
+    logger.debug("Мониторинг ресурсов (режим производительности) запущен")
+    # Ждем завершения теста (interrupt_flag установится в основном потоке)
+    while not interrupt_flag:
+        time.sleep(0.1)
+    t.join()
+    logger.debug("Мониторинг ресурсов (режим производительности) завершен")
+
+
 # ============================================================================
 # ФУНКЦИИ ТЕСТИРОВАНИЯ
 # ============================================================================
@@ -502,26 +558,152 @@ def neural_simulation_test(complexity: str, logger: logging.Logger) -> None:
             logger.debug(f"Нейронная сеть: {i}/{iterations}")
 
 
+def cpu_intensive_test(complexity: str, logger: logging.Logger) -> None:
+    """
+    Интенсивная нагрузка на CPU.
+    Выполняет сложные математические вычисления.
+    """
+    iterations = COMPLEXITY_SETTINGS["hash_calculation"][complexity]
+    
+    for i in range(iterations):
+        if interrupt_flag:
+            break
+        # Сложные математические операции
+        x = i * 1.5
+        result = 0
+        for j in range(100):
+            result += np.sin(x + j) * np.cos(x - j) * np.tan(x * 0.1)
+            result = result ** 0.5 if result > 0 else abs(result) ** 0.5
+        
+        if i % (iterations // 10) == 0:
+            logger.debug(f"CPU интенсивный: {i}/{iterations}")
+
+
+def memory_intensive_test(complexity: str, logger: logging.Logger) -> None:
+    """
+    Интенсивная нагрузка на память.
+    Создает и обрабатывает большие массивы данных.
+    """
+    iterations = COMPLEXITY_SETTINGS["prime_numbers"][complexity] // 1000
+    
+    # Создание больших массивов
+    array_size = 10000
+    data_arrays = []
+    
+    for i in range(iterations):
+        if interrupt_flag:
+            break
+        # Создание нового большого массива
+        large_array = np.random.rand(array_size, array_size)
+        data_arrays.append(large_array)
+        
+        # Операции с массивом
+        result = np.sum(large_array)
+        result = np.mean(large_array)
+        result = np.std(large_array)
+        
+        # Ограничиваем количество массивов в памяти
+        if len(data_arrays) > 5:
+            data_arrays.pop(0)
+        
+        if i % (iterations // 10) == 0:
+            logger.debug(f"Память интенсивный: {i}/{iterations}")
+
+
+def io_intensive_test(complexity: str, logger: logging.Logger) -> None:
+    """
+    Интенсивная нагрузка на диск.
+    Выполняет множество операций чтения/записи.
+    """
+    iterations = COMPLEXITY_SETTINGS["hash_calculation"][complexity] // 100
+    
+    # Создание временного файла
+    temp_file = "temp_io_test.txt"
+    
+    try:
+        for i in range(iterations):
+            if interrupt_flag:
+                break
+            
+            # Запись данных
+            with open(temp_file, 'w') as f:
+                for j in range(1000):
+                    f.write(f"Строка {j}: {np.random.rand()}\n")
+            
+            # Чтение данных
+            with open(temp_file, 'r') as f:
+                lines = f.readlines()
+                # Обработка прочитанных данных
+                sum_values = sum(float(line.split(': ')[1]) for line in lines)
+            
+            if i % (iterations // 10) == 0:
+                logger.debug(f"Диск интенсивный: {i}/{iterations}")
+    
+    finally:
+        # Удаление временного файла
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+
+
+def mixed_load_test(complexity: str, logger: logging.Logger) -> None:
+    """
+    Смешанная нагрузка (CPU + память + диск).
+    Комбинирует различные типы нагрузки.
+    """
+    iterations = COMPLEXITY_SETTINGS["hash_calculation"][complexity] // 100
+    
+    # Создание временного файла
+    temp_file = "temp_mixed_test.txt"
+    
+    try:
+        for i in range(iterations):
+            if interrupt_flag:
+                break
+            
+            # CPU нагрузка
+            x = i * 2.5
+            cpu_result = 0
+            for j in range(50):
+                cpu_result += np.sin(x + j) * np.cos(x - j)
+            
+            # Память нагрузка
+            memory_array = np.random.rand(1000, 1000)
+            memory_result = np.sum(memory_array)
+            
+            # Диск нагрузка
+            with open(temp_file, 'w') as f:
+                f.write(f"Результат: {cpu_result + memory_result}\n")
+            
+            with open(temp_file, 'r') as f:
+                data = f.read()
+            
+            if i % (iterations // 10) == 0:
+                logger.debug(f"Смешанная нагрузка: {i}/{iterations}")
+    
+    finally:
+        # Удаление временного файла
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+
+
 # ============================================================================
 # ФУНКЦИИ АНАЛИЗА И СОХРАНЕНИЯ
 # ============================================================================
 
 def run_performance_test(test_type: str, load_type: str, complexity: str, 
-                        duration: float, logger: logging.Logger) -> Dict[str, Any]:
+                        duration: float, logger: logging.Logger, performance_mode: bool = False) -> Dict[str, Any]:
     """
     Запускает тест производительности.
     Настраивает мониторинг, выбирает функцию тестирования и запускает ее.
+    
+    Args:
+        performance_mode: Если True, программа работает до завершения задачи без ограничения времени
     """
     logger.info(LOG_MESSAGES["test_start"].format(
         start_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     ))
     
     start_time = time.time()
-    
-    # Запуск мониторинга в отдельном потоке
-    monitor_thread = threading.Thread(target=start_monitoring, args=(duration, logger))
-    monitor_thread.daemon = True
-    monitor_thread.start()
     
     # Выбор и запуск теста
     test_functions = {
@@ -530,24 +712,59 @@ def run_performance_test(test_type: str, load_type: str, complexity: str,
         "bitcoin_mining": bitcoin_mining_simulation,
         "matrix_operations": matrix_operations_test,
         "prime_numbers": prime_numbers_test,
-        "neural_simulation": neural_simulation_test
+        "neural_simulation": neural_simulation_test,
+        "cpu_intensive": cpu_intensive_test,
+        "memory_intensive": memory_intensive_test,
+        "io_intensive": io_intensive_test,
+        "mixed_load": mixed_load_test
     }
     
-    if test_type in test_functions:
-        test_functions[test_type](complexity, logger)
-    else:
-        logger.error(f"Неизвестный тип теста: {test_type}")
-        return {"error": f"Неизвестный тип теста: {test_type}"}
+    # Определение функции тестирования на основе load_type
+    load_type_to_function = {
+        "CPU_INTENSIVE": "cpu_intensive",
+        "MEMORY_INTENSIVE": "memory_intensive", 
+        "IO_INTENSIVE": "io_intensive",
+        "MIXED": "mixed_load"
+    }
     
-    # Ожидание завершения мониторинга
-    monitor_thread.join()
+    # Выбираем функцию тестирования
+    if load_type in load_type_to_function:
+        test_function_name = load_type_to_function[load_type]
+    else:
+        test_function_name = test_type
+    
+    if test_function_name in test_functions:
+        # Запуск мониторинга в отдельном потоке
+        if performance_mode:
+            # В режиме производительности мониторим до завершения теста
+            monitor_thread = threading.Thread(target=start_monitoring_performance, args=(logger))
+        else:
+            # В обычном режиме мониторим заданное время
+            monitor_thread = threading.Thread(target=start_monitoring, args=(duration, logger))
+        
+        monitor_thread.daemon = True
+        monitor_thread.start()
+        
+        # Запуск теста
+        test_functions[test_function_name](complexity, logger)
+        
+        # Ожидание завершения мониторинга
+        monitor_thread.join()
+    else:
+        logger.error(f"Неизвестный тип теста: {test_function_name}")
+        return {"error": f"Неизвестный тип теста: {test_function_name}"}
     
     actual_duration = time.time() - start_time
-    logger.info(LOG_MESSAGES["test_complete"].format(duration=actual_duration))
+    
+    if performance_mode:
+        logger.info(f"Тест производительности завершен за {actual_duration:.2f} секунд")
+    else:
+        logger.info(LOG_MESSAGES["test_complete"].format(duration=actual_duration))
     
     # Анализ результатов
     results = analyze_results(actual_duration, logger)
     results["duration"] = actual_duration
+    results["performance_mode"] = performance_mode
     
     return results
 
@@ -700,11 +917,13 @@ def parse_arguments():
         epilog="""
 Примеры использования:
   python main.py --config mining
+  python main.py --config cpu_benchmark
   python main.py --interactive
   python main.py --test-type bitcoin_mining --duration 45
+  python main.py --performance-mode --test-type matrix_operations --complexity hard
         """
     )
-    parser.add_argument("--config", "-c", type=str, help="Имя готовой конфигурации (quick, crypto, mining, math, prime, neural)")
+    parser.add_argument("--config", "-c", type=str, help="Имя готовой конфигурации (quick, crypto, mining, math, prime, neural, cpu_benchmark, memory_benchmark, mixed_benchmark, crypto_benchmark)")
     parser.add_argument("--interactive", "-i", action="store_true", help="Интерактивный режим выбора параметров")
     parser.add_argument("--test-type", "-t", type=str, choices=list(TEST_TYPES.keys()), help="Тип теста")
     parser.add_argument("--load-type", "-l", type=str, choices=list(LOAD_TYPES.keys()), help="Тип нагрузки")
@@ -712,6 +931,7 @@ def parse_arguments():
     parser.add_argument("--duration", "-d", type=int, help="Продолжительность теста в секундах")
     parser.add_argument("--log-level", type=str, choices=["INFO", "DEBUG"], default="INFO", help="Уровень логирования")
     parser.add_argument("--list-configs", action="store_true", help="Показать список доступных конфигураций")
+    parser.add_argument("--performance-mode", "-p", action="store_true", help="Режим тестирования производительности (без ограничения времени)")
     return parser.parse_args()
 
 
@@ -723,95 +943,176 @@ def print_all_configs() -> None:
     print("ДОСТУПНЫЕ КОНФИГУРАЦИИ ТЕСТОВ")
     print("="*60)
     
+    print("\n🔧 ОБЫЧНЫЕ ТЕСТЫ (с ограничением времени):")
+    print("-" * 40)
+    
     for config_name, config in TEST_CONFIGS.items():
-        print(f"\n📋 {config_name.upper()}")
-        print(f"   Тип теста: {config['test_type']}")
-        print(f"   Тип нагрузки: {config['load_type']}")
-        print(f"   Сложность: {config['complexity']}")
-        print(f"   Продолжительность: {config['duration']} секунд")
-        print(f"   Описание: {TEST_TYPES.get(config['test_type'], 'N/A')}")
+        if not config.get("performance_mode", False):
+            print(f"\n📋 {config_name.upper()}")
+            print(f"   Тип теста: {config['test_type']}")
+            print(f"   Тип нагрузки: {config['load_type']}")
+            print(f"   Сложность: {config['complexity']}")
+            print(f"   Продолжительность: {config.get('duration', 'N/A')} секунд")
+            print(f"   Описание: {TEST_TYPES.get(config['test_type'], 'N/A')}")
+    
+    print("\n⚡ ТЕСТЫ ПРОИЗВОДИТЕЛЬНОСТИ (до завершения задачи):")
+    print("-" * 40)
+    
+    for config_name, config in TEST_CONFIGS.items():
+        if config.get("performance_mode", False):
+            print(f"\n🚀 {config_name.upper()}")
+            print(f"   Тип теста: {config['test_type']}")
+            print(f"   Тип нагрузки: {config['load_type']}")
+            print(f"   Сложность: {config['complexity']}")
+            print(f"   Режим: Тест производительности (без ограничения времени)")
+            print(f"   Описание: {TEST_TYPES.get(config['test_type'], 'N/A')}")
+            print(f"   Назначение: Сравнение производительности разных систем")
 
 
 def interactive_config_selection() -> Dict[str, Any]:
     """
-    Интерактивный выбор конфигурации теста.
+    Интерактивный выбор конфигурации теста с возможностью использования значений по умолчанию.
+    Пользователь может нажать Enter для использования значений по умолчанию.
     """
-    print("\n" + "="*50)
-    print("ИНТЕРАКТИВНЫЙ ВЫБОР КОНФИГУРАЦИИ ТЕСТА")
-    print("="*50)
+    print("\n" + "="*60)
+    print("🎯 ИНТЕРАКТИВНЫЙ ВЫБОР КОНФИГУРАЦИИ ТЕСТА")
+    print("="*60)
+    print("💡 Нажмите Enter для использования значений по умолчанию")
+    print(f"📋 Значения по умолчанию: {DEFAULT_VALUES['test_type']}, {DEFAULT_VALUES['load_type']}, {DEFAULT_VALUES['complexity']}, {DEFAULT_VALUES['duration']}с")
     
     # Выбор типа теста
-    print("\n📊 Доступные типы тестов:")
+    print(f"\n📊 Доступные типы тестов:")
     for i, (test_type, description) in enumerate(TEST_TYPES.items(), 1):
-        print(f"   {i}. {test_type} — {description}")
+        default_marker = " (по умолчанию)" if test_type == DEFAULT_VALUES["test_type"] else ""
+        print(f"   {i}. {test_type} — {description}{default_marker}")
     
     while True:
         try:
-            choice = int(input(f"\nВыберите тип теста (1-{len(TEST_TYPES)}): ")) - 1
+            user_input = input(f"\nВыберите тип теста (1-{len(TEST_TYPES)}) или Enter для значения по умолчанию: ").strip()
+            if user_input == "":
+                test_type = DEFAULT_VALUES["test_type"]
+                print(f"✅ Используется значение по умолчанию: {test_type}")
+                break
+            choice = int(user_input) - 1
             if 0 <= choice < len(TEST_TYPES):
                 test_type = list(TEST_TYPES.keys())[choice]
                 break
             else:
                 print("❌ Неверный выбор. Попробуйте снова.")
         except ValueError:
-            print("❌ Введите число.")
+            print("❌ Введите число или нажмите Enter.")
     
     # Выбор типа нагрузки
-    print("\n⚡ Доступные типы нагрузки:")
+    print(f"\n⚡ Доступные типы нагрузки:")
     for i, (load_type, description) in enumerate(LOAD_TYPES.items(), 1):
-        print(f"   {i}. {load_type} — {description}")
+        default_marker = " (по умолчанию)" if load_type == DEFAULT_VALUES["load_type"] else ""
+        print(f"   {i}. {load_type} — {description}{default_marker}")
     
     while True:
         try:
-            choice = int(input(f"\nВыберите тип нагрузки (1-{len(LOAD_TYPES)}): ")) - 1
+            user_input = input(f"\nВыберите тип нагрузки (1-{len(LOAD_TYPES)}) или Enter для значения по умолчанию: ").strip()
+            if user_input == "":
+                load_type = DEFAULT_VALUES["load_type"]
+                print(f"✅ Используется значение по умолчанию: {load_type}")
+                break
+            choice = int(user_input) - 1
             if 0 <= choice < len(LOAD_TYPES):
                 load_type = list(LOAD_TYPES.keys())[choice]
                 break
             else:
                 print("❌ Неверный выбор. Попробуйте снова.")
         except ValueError:
-            print("❌ Введите число.")
+            print("❌ Введите число или нажмите Enter.")
     
     # Выбор сложности
-    print("\n🎯 Доступные уровни сложности:")
+    print(f"\n🎯 Доступные уровни сложности:")
     complexities = ["easy", "medium", "hard"]
     for i, complexity in enumerate(complexities, 1):
-        print(f"   {i}. {complexity}")
+        default_marker = " (по умолчанию)" if complexity == DEFAULT_VALUES["complexity"] else ""
+        print(f"   {i}. {complexity}{default_marker}")
     
     while True:
         try:
-            choice = int(input(f"\nВыберите сложность (1-{len(complexities)}): ")) - 1
+            user_input = input(f"\nВыберите сложность (1-{len(complexities)}) или Enter для значения по умолчанию: ").strip()
+            if user_input == "":
+                complexity = DEFAULT_VALUES["complexity"]
+                print(f"✅ Используется значение по умолчанию: {complexity}")
+                break
+            choice = int(user_input) - 1
             if 0 <= choice < len(complexities):
                 complexity = complexities[choice]
                 break
             else:
                 print("❌ Неверный выбор. Попробуйте снова.")
         except ValueError:
-            print("❌ Введите число.")
+            print("❌ Введите число или нажмите Enter.")
     
     # Выбор продолжительности
+    print(f"\n⏱️  Продолжительность теста:")
+    print(f"   Минимум: {TEST_SETTINGS['min_duration']} секунд")
+    print(f"   Максимум: {TEST_SETTINGS['max_duration']} секунд")
+    print(f"   По умолчанию: {DEFAULT_VALUES['duration']} секунд")
+    
     while True:
         try:
-            duration = int(input(f"\nВведите продолжительность теста в секундах ({TEST_SETTINGS['min_duration']}-{TEST_SETTINGS['max_duration']}): "))
+            user_input = input(f"\nВведите продолжительность ({TEST_SETTINGS['min_duration']}-{TEST_SETTINGS['max_duration']}с) или Enter для значения по умолчанию: ").strip()
+            if user_input == "":
+                duration = DEFAULT_VALUES["duration"]
+                print(f"✅ Используется значение по умолчанию: {duration} секунд")
+                break
+            duration = int(user_input)
             if TEST_SETTINGS['min_duration'] <= duration <= TEST_SETTINGS['max_duration']:
                 break
             else:
                 print(f"❌ Продолжительность должна быть от {TEST_SETTINGS['min_duration']} до {TEST_SETTINGS['max_duration']} секунд.")
         except ValueError:
-            print("❌ Введите число.")
+            print("❌ Введите число или нажмите Enter.")
+    
+    # Выбор режима производительности
+    print(f"\n🚀 Режим тестирования:")
+    print(f"   1. Обычный режим — тест выполняется заданное время")
+    print(f"   2. Режим производительности — тест выполняется до завершения (для сравнения систем)")
+    default_mode = "1" if not DEFAULT_VALUES["performance_mode"] else "2"
+    default_marker = " (по умолчанию)" if not DEFAULT_VALUES["performance_mode"] else " (по умолчанию)"
+    print(f"   По умолчанию: Обычный режим{default_marker}")
+    
+    while True:
+        try:
+            user_input = input(f"\nВыберите режим (1-2) или Enter для значения по умолчанию: ").strip()
+            if user_input == "":
+                performance_mode = DEFAULT_VALUES["performance_mode"]
+                mode_name = "Режим производительности" if performance_mode else "Обычный режим"
+                print(f"✅ Используется значение по умолчанию: {mode_name}")
+                break
+            choice = int(user_input)
+            if choice == 1:
+                performance_mode = False
+                break
+            elif choice == 2:
+                performance_mode = True
+                break
+            else:
+                print("❌ Выберите 1 или 2.")
+        except ValueError:
+            print("❌ Введите число или нажмите Enter.")
     
     config = {
         "test_type": test_type,
         "load_type": load_type,
         "complexity": complexity,
-        "duration": duration
+        "duration": duration,
+        "performance_mode": performance_mode
     }
     
-    print(f"\n✅ Выбранная конфигурация:")
-    print(f"   Тип теста: {test_type}")
-    print(f"   Тип нагрузки: {load_type}")
-    print(f"   Сложность: {complexity}")
-    print(f"   Продолжительность: {duration} секунд")
+    print(f"\n" + "="*50)
+    print(f"✅ ИТОГОВАЯ КОНФИГУРАЦИЯ:")
+    print(f"   📊 Тип теста: {test_type} — {TEST_TYPES[test_type]}")
+    print(f"   ⚡ Тип нагрузки: {load_type} — {LOAD_TYPES[load_type]}")
+    print(f"   🎯 Сложность: {complexity}")
+    print(f"   ⏱️  Продолжительность: {duration} секунд")
+    mode_name = "Режим производительности" if performance_mode else "Обычный режим"
+    print(f"   🚀 Режим: {mode_name}")
+    print(f"="*50)
     
     return config
 
@@ -860,16 +1161,23 @@ def run_basic_mode():
     }
     
     # Логирование конфигурации теста
-    logger.info(LOG_MESSAGES["test_config"].format(**test_config))
+    if test_config.get("performance_mode", False):
+        logger.info(f"Тип теста: {test_config['test_type']}, Нагрузка: {test_config['load_type']}, Сложность: {test_config['complexity']}, Режим: Тест производительности")
+    else:
+        logger.info(LOG_MESSAGES["test_config"].format(**test_config))
     
     try:
+        # Проверяем режим производительности
+        performance_mode = test_config.get("performance_mode", False)
+        
         # Запуск теста
         results = run_performance_test(
             test_config["test_type"],
             test_config["load_type"],
             test_config["complexity"],
-            test_config["duration"],
-            logger
+            test_config.get("duration", TEST_SETTINGS["default_duration"]),
+            logger,
+            performance_mode
         )
         
         # Сохранение результатов в файл
@@ -940,7 +1248,8 @@ def run_advanced_mode():
             "test_type": args.test_type or "bitcoin_mining",
             "load_type": args.load_type or "CPU",
             "complexity": args.complexity or "medium",
-            "duration": args.duration or TEST_SETTINGS["default_duration"]
+            "duration": args.duration or TEST_SETTINGS["default_duration"],
+            "performance_mode": args.performance_mode
         }
     
     # Логирование конфигурации теста
@@ -952,8 +1261,9 @@ def run_advanced_mode():
             test_config["test_type"],
             test_config["load_type"],
             test_config["complexity"],
-            test_config["duration"],
-            logger
+            test_config.get("duration", TEST_SETTINGS["default_duration"]),
+            logger,
+            test_config.get("performance_mode", False)
         )
         
         # Сохранение результатов в файл
@@ -1017,7 +1327,8 @@ def run_interactive_mode():
             test_config["load_type"],
             test_config["complexity"],
             test_config["duration"],
-            logger
+            logger,
+            test_config.get("performance_mode", False)
         )
         
         # Сохранение результатов в файл
