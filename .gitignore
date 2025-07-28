@@ -281,4 +281,9 @@ WORK/
 *.bak
 *.backup
 *.old
-*.orig 
+*.orig
+
+# Keep configuration files
+!.vscode/settings.json
+!.cursorrules
+!PROJECT_REQUIREMENTS.md 
