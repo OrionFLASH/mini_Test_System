@@ -92,7 +92,8 @@ DEFAULT_VALUES = {
     "load_type": "CPU",                 # По умолчанию: только CPU
     "complexity": "medium",             # По умолчанию: средняя сложность
     "duration": 30,                     # По умолчанию: 30 секунд
-    "performance_mode": False           # По умолчанию: обычный режим (с ограничением времени)
+    "performance_mode": False,          # По умолчанию: обычный режим (с ограничением времени)
+    "processor_type": "auto"            # По умолчанию: автоматическое определение
 }
 
 TEST_TYPES = {
@@ -246,6 +247,14 @@ TEST_CONFIGS = {
 # ============================================================================
 interrupt_flag = False
 monitoring_data = {}
+
+# Переменные для отслеживания результатов расчетов
+calculation_results = {
+    "iterations_completed": 0,
+    "calculations_performed": 0,
+    "data_processed": 0,
+    "test_specific_results": {}
+}
 
 # ============================================================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ С ФАЙЛОВОЙ СИСТЕМОЙ
@@ -460,14 +469,25 @@ def bitcoin_mining_simulation(complexity: str, logger: logging.Logger) -> None:
     Симуляция майнинга биткойна.
     Имитирует поиск хеша с определенным количеством нулей.
     """
+    global calculation_results
     iterations = COMPLEXITY_SETTINGS["bitcoin_mining"][complexity]
+    calculation_results["iterations_completed"] = 0
+    calculation_results["calculations_performed"] = 0
+    calculation_results["test_specific_results"] = {"hashes_calculated": 0, "blocks_found": 0}
+    
     for i in range(iterations):
         if interrupt_flag:
             break
         nonce = i
         data = f"block_data_{nonce}".encode('utf-8')
         hash_result = hashlib.sha256(data).hexdigest()
+        
+        calculation_results["iterations_completed"] = i + 1
+        calculation_results["calculations_performed"] += 1
+        calculation_results["test_specific_results"]["hashes_calculated"] += 1
+        
         if hash_result.startswith('00'):
+            calculation_results["test_specific_results"]["blocks_found"] += 1
             logger.debug(f"Найден блок! Nonce: {nonce}, Hash: {hash_result[:16]}...")
         if i % (iterations // 10) == 0:
             logger.debug(f"Майнинг: {i}/{iterations}")
@@ -705,6 +725,15 @@ def run_performance_test(test_type: str, load_type: str, complexity: str,
     
     start_time = time.time()
     
+    # Сброс результатов расчетов
+    global calculation_results
+    calculation_results = {
+        "iterations_completed": 0,
+        "calculations_performed": 0,
+        "data_processed": 0,
+        "test_specific_results": {}
+    }
+    
     # Выбор и запуск теста
     test_functions = {
         "basic": basic_performance_test,
@@ -737,7 +766,7 @@ def run_performance_test(test_type: str, load_type: str, complexity: str,
         # Запуск мониторинга в отдельном потоке
         if performance_mode:
             # В режиме производительности мониторим до завершения теста
-            monitor_thread = threading.Thread(target=start_monitoring_performance, args=(logger))
+            monitor_thread = threading.Thread(target=start_monitoring_performance, args=(logger,))
         else:
             # В обычном режиме мониторим заданное время
             monitor_thread = threading.Thread(target=start_monitoring, args=(duration, logger))
@@ -881,6 +910,25 @@ def save_results_to_file(results: Dict[str, Any], test_config: Dict[str, Any], l
                 content.append(f"  Средняя температура GPU: {gpu_temp:.1f}°C")
             content.append("")
         
+        # Результаты расчетов
+        content.append("РЕЗУЛЬТАТЫ РАСЧЕТОВ:")
+        content.append("-" * 30)
+        content.append(f"Выполнено итераций: {calculation_results.get('iterations_completed', 0):,}")
+        content.append(f"Выполнено вычислений: {calculation_results.get('calculations_performed', 0):,}")
+        content.append(f"Обработано данных: {calculation_results.get('data_processed', 0):,}")
+        
+        # Специфичные результаты теста
+        test_specific = calculation_results.get('test_specific_results', {})
+        if test_specific:
+            content.append("")
+            content.append("СПЕЦИФИЧНЫЕ РЕЗУЛЬТАТЫ ТЕСТА:")
+            for key, value in test_specific.items():
+                if isinstance(value, int):
+                    content.append(f"  {key.replace('_', ' ').title()}: {value:,}")
+                else:
+                    content.append(f"  {key.replace('_', ' ').title()}: {value}")
+        content.append("")
+        
         # Дополнительная информация
         content.append("ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ:")
         content.append("-" * 30)
@@ -980,6 +1028,32 @@ def interactive_config_selection() -> Dict[str, Any]:
     print("💡 Нажмите Enter для использования значений по умолчанию")
     print(f"📋 Значения по умолчанию: {DEFAULT_VALUES['test_type']}, {DEFAULT_VALUES['load_type']}, {DEFAULT_VALUES['complexity']}, {DEFAULT_VALUES['duration']}с")
     
+    # Выбор типа процессора
+    print(f"\n🖥️  Доступные типы процессоров:")
+    for i, (proc_type, description) in enumerate(PROCESSOR_TYPES.items(), 1):
+        default_marker = " (по умолчанию)" if proc_type == DEFAULT_VALUES["processor_type"] else ""
+        print(f"   {i}. {proc_type} — {description}{default_marker}")
+    print(f"   {len(PROCESSOR_TYPES) + 1}. auto — Автоматическое определение (по умолчанию)")
+    
+    while True:
+        try:
+            user_input = input(f"\nВыберите тип процессора (1-{len(PROCESSOR_TYPES) + 1}) или Enter для значения по умолчанию: ").strip()
+            if user_input == "":
+                processor_type = DEFAULT_VALUES["processor_type"]
+                print(f"✅ Используется значение по умолчанию: {processor_type}")
+                break
+            choice = int(user_input)
+            if 1 <= choice <= len(PROCESSOR_TYPES):
+                processor_type = list(PROCESSOR_TYPES.keys())[choice - 1]
+                break
+            elif choice == len(PROCESSOR_TYPES) + 1:
+                processor_type = "auto"
+                break
+            else:
+                print("❌ Неверный выбор. Попробуйте снова.")
+        except ValueError:
+            print("❌ Введите число или нажмите Enter.")
+    
     # Выбор типа теста
     print(f"\n📊 Доступные типы тестов:")
     for i, (test_type, description) in enumerate(TEST_TYPES.items(), 1):
@@ -1047,27 +1121,6 @@ def interactive_config_selection() -> Dict[str, Any]:
         except ValueError:
             print("❌ Введите число или нажмите Enter.")
     
-    # Выбор продолжительности
-    print(f"\n⏱️  Продолжительность теста:")
-    print(f"   Минимум: {TEST_SETTINGS['min_duration']} секунд")
-    print(f"   Максимум: {TEST_SETTINGS['max_duration']} секунд")
-    print(f"   По умолчанию: {DEFAULT_VALUES['duration']} секунд")
-    
-    while True:
-        try:
-            user_input = input(f"\nВведите продолжительность ({TEST_SETTINGS['min_duration']}-{TEST_SETTINGS['max_duration']}с) или Enter для значения по умолчанию: ").strip()
-            if user_input == "":
-                duration = DEFAULT_VALUES["duration"]
-                print(f"✅ Используется значение по умолчанию: {duration} секунд")
-                break
-            duration = int(user_input)
-            if TEST_SETTINGS['min_duration'] <= duration <= TEST_SETTINGS['max_duration']:
-                break
-            else:
-                print(f"❌ Продолжительность должна быть от {TEST_SETTINGS['min_duration']} до {TEST_SETTINGS['max_duration']} секунд.")
-        except ValueError:
-            print("❌ Введите число или нажмите Enter.")
-    
     # Выбор режима производительности
     print(f"\n🚀 Режим тестирования:")
     print(f"   1. Обычный режим — тест выполняется заданное время")
@@ -1096,20 +1149,48 @@ def interactive_config_selection() -> Dict[str, Any]:
         except ValueError:
             print("❌ Введите число или нажмите Enter.")
     
+    # Выбор продолжительности (только для обычного режима)
+    if not performance_mode:
+        print(f"\n⏱️  Продолжительность теста:")
+        print(f"   Минимум: {TEST_SETTINGS['min_duration']} секунд")
+        print(f"   Максимум: {TEST_SETTINGS['max_duration']} секунд")
+        print(f"   По умолчанию: {DEFAULT_VALUES['duration']} секунд")
+        
+        while True:
+            try:
+                user_input = input(f"\nВведите продолжительность ({TEST_SETTINGS['min_duration']}-{TEST_SETTINGS['max_duration']}с) или Enter для значения по умолчанию: ").strip()
+                if user_input == "":
+                    duration = DEFAULT_VALUES["duration"]
+                    print(f"✅ Используется значение по умолчанию: {duration} секунд")
+                    break
+                duration = int(user_input)
+                if TEST_SETTINGS['min_duration'] <= duration <= TEST_SETTINGS['max_duration']:
+                    break
+                else:
+                    print(f"❌ Продолжительность должна быть от {TEST_SETTINGS['min_duration']} до {TEST_SETTINGS['max_duration']} секунд.")
+            except ValueError:
+                print("❌ Введите число или нажмите Enter.")
+    else:
+        duration = 0  # Для режима производительности время не важно
+        print(f"\n✅ В режиме производительности тест выполняется до завершения")
+    
     config = {
         "test_type": test_type,
         "load_type": load_type,
         "complexity": complexity,
         "duration": duration,
-        "performance_mode": performance_mode
+        "performance_mode": performance_mode,
+        "processor_type": processor_type
     }
     
     print(f"\n" + "="*50)
     print(f"✅ ИТОГОВАЯ КОНФИГУРАЦИЯ:")
+    print(f"   🖥️  Тип процессора: {processor_type}")
     print(f"   📊 Тип теста: {test_type} — {TEST_TYPES[test_type]}")
     print(f"   ⚡ Тип нагрузки: {load_type} — {LOAD_TYPES[load_type]}")
     print(f"   🎯 Сложность: {complexity}")
-    print(f"   ⏱️  Продолжительность: {duration} секунд")
+    if not performance_mode:
+        print(f"   ⏱️  Продолжительность: {duration} секунд")
     mode_name = "Режим производительности" if performance_mode else "Обычный режим"
     print(f"   🚀 Режим: {mode_name}")
     print(f"="*50)
